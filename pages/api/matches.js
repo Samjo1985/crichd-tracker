@@ -15,8 +15,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🚀 Starting JavaScript-aware scraping...');
-    const channels = await scrapeJavaScriptStreams();
+    console.log('🚀 Starting REAL URL scraping...');
+    const channels = await scrapeRealUrls();
     
     res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate');
     res.status(200).json({
@@ -24,23 +24,20 @@ export default async function handler(req, res) {
       data: channels,
       total: channels.length,
       lastUpdated: new Date().toISOString(),
-      message: `Found ${channels.filter(c => c.hasStream).length} working streams`
+      message: `Found ${channels.filter(c => c.hasStream).length} real streams`
     });
     
   } catch (error) {
-    console.error('❌ JavaScript scraping failed:', error.message);
-    res.status(200).json({
-      success: true,
-      data: getSmartFallbackStreams(),
-      total: 8,
-      lastUpdated: new Date().toISOString(),
-      message: "Using smart fallback streams",
-      error: error.message
+    console.error('❌ Real scraping failed:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Scraping failed',
+      details: error.message
     });
   }
 }
 
-async function scrapeJavaScriptStreams() {
+async function scrapeRealUrls() {
   const baseUrl = 'https://profamouslife.com';
   
   const axiosConfig = {
@@ -60,7 +57,7 @@ async function scrapeJavaScriptStreams() {
     
     const channels = [];
 
-    // Extract all channels from main page
+    // Extract all channels from main page - REAL URLs
     $main('.channel-list .channel a').each((index, element) => {
       const $link = $main(element);
       const href = $link.attr('href');
@@ -68,63 +65,58 @@ async function scrapeJavaScriptStreams() {
       const icon = $link.find('img.icon').attr('src');
       
       if (href && title) {
-        const fullChannelUrl = normalizeUrl(href, baseUrl);
-        const fullIconUrl = normalizeUrl(icon, baseUrl);
+        const fullChannelUrl = href.startsWith('./') ? `${baseUrl}${href.substring(1)}` : 
+                              href.startsWith('/') ? `${baseUrl}${href}` : 
+                              href.startsWith('http') ? href : `${baseUrl}/${href}`;
+        
+        const fullIconUrl = icon.startsWith('./') ? `${baseUrl}${icon.substring(1)}` : 
+                           icon.startsWith('/') ? `${baseUrl}${icon}` : 
+                           icon.startsWith('http') ? icon : `${baseUrl}/${icon}`;
         
         const channel = {
           id: channels.length + 1,
           title: title,
           icon: fullIconUrl,
           channelUrl: fullChannelUrl,
-          streamUrl: null,
+          streamUrl: null, // Will be filled with REAL URL
           hasStream: false,
           type: "unknown",
           category: getCategoryFromTitle(title),
           quality: "HD",
           source: "profamouslife.com",
-          status: "pending",
-          fid: getFidFromTitle(title) // Channel ID for premium.js
+          status: "pending"
         };
         
         channels.push(channel);
-        console.log(`📺 Found channel: ${title} -> FID: ${channel.fid}`);
+        console.log(`📺 Found channel: ${title} -> ${fullChannelUrl}`);
       }
     });
 
-    console.log(`🔍 Found ${channels.length} channels, analyzing JavaScript...`);
+    console.log(`🔍 Found ${channels.length} channels, visiting each page...`);
 
-    // Step 2: Analyze each channel page for JavaScript patterns
-    for (let i = 0; i < Math.min(channels.length, 12); i++) {
+    // Step 2: Visit EVERY channel page and extract REAL iframe src
+    for (let i = 0; i < channels.length; i++) {
       const channel = channels[i];
-      console.log(`\n🎯 Analyzing (${i+1}/${Math.min(channels.length, 12)}): ${channel.title}`);
+      console.log(`\n🎯 Visiting (${i+1}/${channels.length}): ${channel.title}`);
+      console.log(`   📄 Page: ${channel.channelUrl}`);
       
       try {
-        const streamResult = await analyzeChannelPage(channel, axiosConfig);
+        const realStreamUrl = await getRealStreamUrl(channel.channelUrl, axiosConfig);
         
-        if (streamResult.streamUrl) {
-          channel.streamUrl = streamResult.streamUrl;
+        if (realStreamUrl) {
+          channel.streamUrl = realStreamUrl;
           channel.hasStream = true;
-          channel.type = streamResult.type;
+          channel.type = "iframe";
           channel.status = "success";
-          console.log(`✅ SUCCESS: ${streamResult.method}`);
-          console.log(`   📺 Stream: ${streamResult.streamUrl}`);
+          console.log(`✅ SUCCESS: Found real stream URL`);
+          console.log(`   📺 Real URL: ${realStreamUrl}`);
         } else {
-          // Try to generate stream URL from FID pattern
-          const generatedUrl = generateStreamFromFid(channel.fid);
-          if (generatedUrl) {
-            channel.streamUrl = generatedUrl;
-            channel.hasStream = true;
-            channel.type = "generated";
-            channel.status = "generated";
-            console.log(`✅ GENERATED: From FID pattern`);
-            console.log(`   📺 Stream: ${generatedUrl}`);
-          } else {
-            channel.status = "no_stream";
-            console.log(`❌ No stream found`);
-          }
+          channel.status = "no_stream";
+          console.log(`❌ FAILED: No stream iframe found on the page`);
         }
         
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Respectful delay
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
       } catch (error) {
         channel.status = "error";
@@ -134,337 +126,125 @@ async function scrapeJavaScriptStreams() {
     }
 
     const workingChannels = channels.filter(ch => ch.hasStream);
-    console.log(`\n🎉 FINAL: ${workingChannels.length}/${channels.length} streams working`);
+    console.log(`\n🎉 FINAL RESULTS:`);
+    console.log(`   ✅ Working: ${workingChannels.length}`);
+    console.log(`   ❌ Failed: ${channels.length - workingChannels.length}`);
     
-    return workingChannels.length > 0 ? workingChannels : getSmartFallbackStreams();
+    // Log all working streams
+    workingChannels.forEach(channel => {
+      console.log(`   📺 ${channel.title}: ${channel.streamUrl}`);
+    });
+    
+    return workingChannels;
     
   } catch (error) {
     console.error('❌ Main scraping failed:', error.message);
-    return getSmartFallbackStreams();
+    throw error;
   }
 }
 
-async function analyzeChannelPage(channel, config) {
+async function getRealStreamUrl(channelUrl, config) {
   try {
-    console.log(`   🌐 Fetching: ${channel.channelUrl}`);
-    const response = await axios.get(channel.channelUrl, config);
+    console.log(`   🌐 Fetching channel page...`);
+    const response = await axios.get(channelUrl, config);
     const $ = cheerio.load(response.data);
-    const htmlContent = response.data;
+    
+    // Look for the actual iframe with stream
+    let realStreamUrl = null;
 
-    // Method 1: Look for the premium.js pattern
-    if (htmlContent.includes('premium.js')) {
-      console.log(`   🔍 Found premium.js pattern`);
-      
-      // Extract fid from script variables
-      const fidMatch = htmlContent.match(/fid\s*=\s*["']([^"']+)["']/);
-      const extractedFid = fidMatch ? fidMatch[1] : channel.fid;
-      
-      if (extractedFid) {
-        console.log(`   📋 Extracted FID: ${extractedFid}`);
-        
-        // Try to get the premium.js file to understand the pattern
-        try {
-          const premiumJsUrl = 'https://profamouslife.com/premium.js';
-          const jsResponse = await axios.get(premiumJsUrl, config);
-          const jsContent = jsResponse.data;
-          
-          // Look for URL patterns in the JavaScript
-          const urlPatterns = [
-            /https?:\/\/[^"'\s]*streamcrichd[^"'\s]*\/update\/[^"'\s]*\.php/gi,
-            /https?:\/\/[^"'\s]*crichd[^"'\s]*\/[^"'\s]*\/[^"'\s]*\.php/gi,
-            /\/\/[^"'\s]*stream[^"'\s]*\/update\/[^"'\s]*\.php/gi
-          ];
-          
-          for (const pattern of urlPatterns) {
-            const matches = jsContent.match(pattern);
-            if (matches) {
-              const baseUrl = matches[0].replace(/\/[^/]+\.php$/, '');
-              const streamUrl = `${baseUrl}/${extractedFid}.php`;
-              return {
-                streamUrl: streamUrl.startsWith('//') ? `https:${streamUrl}` : streamUrl,
-                type: "premium_js",
-                method: "premium.js analysis"
-              };
-            }
-          }
-        } catch (jsError) {
-          console.log(`   ❌ Could not analyze premium.js: ${jsError.message}`);
-        }
-        
-        // If premium.js analysis fails, try common patterns
-        const commonUrls = [
-          `https://streamcrichd.com/update/${extractedFid}.php`,
-          `https://stream.crichd.vip/update/${extractedFid}.php`,
-          `//streamcrichd.com/update/${extractedFid}.php`,
-          `//stream.crichd.vip/update/${extractedFid}.php`
-        ];
-        
-        for (const url of commonUrls) {
-          try {
-            // Test if the URL might work
-            const testUrl = url.startsWith('//') ? `https:${url}` : url;
-            console.log(`   🧪 Testing: ${testUrl}`);
-            // We'll assume it works based on pattern
-            return {
-              streamUrl: testUrl,
-              type: "pattern_based",
-              method: "FID pattern matching"
-            };
-          } catch (testError) {
-            continue;
-          }
-        }
-      }
-    }
-
-    // Method 2: Direct iframe extraction (fallback)
+    // Method 1: Direct iframe extraction
     $('iframe').each((index, element) => {
       const src = $(element).attr('src');
-      if (src && isStreamUrl(src)) {
-        return {
-          streamUrl: normalizeUrl(src),
-          type: "iframe",
-          method: "direct iframe"
-        };
+      console.log(`   🔍 Found iframe: ${src}`);
+      
+      if (src && isLikelyStreamUrl(src)) {
+        realStreamUrl = src.startsWith('//') ? `https:${src}` : src;
+        console.log(`   ✅ This looks like a stream!`);
+        return false; // Stop searching
       }
     });
 
-    // Method 3: Look for common stream patterns in HTML
-    const htmlPatterns = [
-      /https?:\/\/[^"'\s]*streamcrichd[^"'\s]*\/update\/[^"'\s]*\.php/gi,
-      /https?:\/\/[^"'\s]*crichd[^"'\s]*\.php/gi,
-      /\/\/[^"'\s]*stream[^"'\s]*\/update\/[^"'\s]*\.php/gi
-    ];
-
-    for (const pattern of htmlPatterns) {
-      const matches = htmlContent.match(pattern);
-      if (matches && matches.length > 0) {
-        return {
-          streamUrl: normalizeUrl(matches[0]),
-          type: "html_pattern",
-          method: "HTML pattern matching"
-        };
-      }
+    // Method 2: If no iframe found, look for other video elements
+    if (!realStreamUrl) {
+      $('video').each((index, element) => {
+        const src = $(element).attr('src');
+        if (src && isLikelyStreamUrl(src)) {
+          realStreamUrl = src;
+          console.log(`   ✅ Found video source: ${src}`);
+          return false;
+        }
+      });
     }
 
-    return { streamUrl: null, type: "unknown", method: "all methods failed" };
+    // Method 3: Look for embed scripts
+    if (!realStreamUrl) {
+      $('script').each((index, element) => {
+        const scriptContent = $(element).html();
+        if (scriptContent) {
+          // Look for common stream URL patterns in scripts
+          const patterns = [
+            /src\s*=\s*["'](https?:\/\/[^"']*\.php[^"']*)["']/,
+            /iframe.*?src\s*=\s*["'](https?:\/\/[^"']*)["']/,
+            /["'](https?:\/\/[^"']*streamcrichd[^"']*)["']/,
+            /["'](https?:\/\/[^"']*crichd[^"']*)["']/
+          ];
+          
+          for (const pattern of patterns) {
+            const match = scriptContent.match(pattern);
+            if (match && match[1] && isLikelyStreamUrl(match[1])) {
+              realStreamUrl = match[1];
+              console.log(`   ✅ Found in script: ${realStreamUrl}`);
+              return false;
+            }
+          }
+        }
+      });
+    }
+
+    return realStreamUrl;
     
   } catch (error) {
-    console.log(`   ❌ Page analysis failed: ${error.message}`);
-    return { streamUrl: null, type: "error", method: "page fetch failed" };
+    console.log(`   ❌ Failed to fetch page: ${error.message}`);
+    return null;
   }
 }
 
-function getFidFromTitle(title) {
-  const fidMap = {
-    'Willow Cricket': 'willowcricket',
-    'Willow Sports': 'willowsports', 
-    'Willow Extra': 'willowextra',
-    'Star Sports 1': 'starsports1',
-    'Star Sports 1 Hindi': 'starsports1hindi',
-    'Star Sports 3': 'starsports3',
-    'Sky Sports': 'skysports',
-    'PTV Sports': 'ptvsports',
-    'T Sports': 'tsports',
-    'GTV': 'gtv',
-    'Fox Sports': 'foxsports',
-    'Super Sports': 'supersports',
-    'Ten Sports': 'tensports',
-    'Astra Sports': 'astrasports'
-  };
-
-  const lowerTitle = title.toLowerCase();
-  for (const [key, value] of Object.entries(fidMap)) {
-    if (lowerTitle.includes(key.toLowerCase())) {
-      return value;
-    }
-  }
+function isLikelyStreamUrl(url) {
+  if (!url) return false;
   
-  // Generate FID from title as fallback
-  return title.toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[^a-z0-9]/g, '')
-    .substring(0, 20);
-}
-
-function generateStreamFromFid(fid) {
-  if (!fid) return null;
+  const lowerUrl = url.toLowerCase();
   
-  const baseUrls = [
-    'https://streamcrichd.com/update',
-    'https://stream.crichd.vip/update', 
-    'https://crichdstreaming.xyz/update',
-    'https://crichd.live/update'
+  // Must include these keywords
+  const mustInclude = ['stream', 'crichd'];
+  const hasRequired = mustInclude.some(keyword => lowerUrl.includes(keyword));
+  
+  if (!hasRequired) return false;
+  
+  // Should be a PHP file or have common stream patterns
+  const goodPatterns = [
+    '.php',
+    '/update/',
+    'streamcrichd',
+    'crichd.vip',
+    'crichdstreaming'
   ];
   
-  for (const baseUrl of baseUrls) {
-    const streamUrl = `${baseUrl}/${fid}.php`;
-    // We'll return the first one and hope it works
-    return streamUrl;
-  }
-  
-  return null;
-}
-
-function isStreamUrl(url) {
-  if (!url) return false;
-  const lowerUrl = url.toLowerCase();
-  return (
-    lowerUrl.includes('stream') ||
-    lowerUrl.includes('crichd') ||
-    lowerUrl.includes('.php') ||
-    lowerUrl.includes('player') ||
-    lowerUrl.includes('embed')
-  );
-}
-
-function normalizeUrl(url, base = '') {
-  if (!url) return null;
-  
-  if (url.startsWith('//')) {
-    return `https:${url}`;
-  }
-  if (url.startsWith('/')) {
-    return `https://profamouslife.com${url}`;
-  }
-  if (url.startsWith('./')) {
-    return `https://profamouslife.com${url.substring(1)}`;
-  }
-  if (!url.startsWith('http')) {
-    return base ? `${base}/${url}` : `https://profamouslife.com/${url}`;
-  }
-  return url;
+  return goodPatterns.some(pattern => lowerUrl.includes(pattern));
 }
 
 function getCategoryFromTitle(title) {
-  const categories = {
-    'willow': 'USA',
-    'star sports': 'India',
-    't sports': 'Bangladesh', 
-    'ptv': 'Pakistan',
-    'sky sports': 'UK',
-    'fox': 'Australia',
-    'super sports': 'South Africa',
-    'ten sports': 'Pakistan',
-    'gtv': 'Bangladesh',
-    'astra': 'Middle East'
-  };
-
   const lowerTitle = title.toLowerCase();
-  for (const [key, value] of Object.entries(categories)) {
-    if (lowerTitle.includes(key)) return value;
-  }
-  return 'International';
-}
-
-function getSmartFallbackStreams() {
-  console.log('🔄 Using smart fallback streams');
   
-  // These are based on common patterns and known working URLs
-  return [
-    {
-      id: 1,
-      title: "Willow Cricket",
-      icon: "https://profamouslife.com/icons/willow-sports.png",
-      streamUrl: "https://streamcrichd.com/update/willowcricket.php",
-      hasStream: true,
-      type: "generated",
-      category: "USA",
-      quality: "HD",
-      source: "pattern",
-      status: "success",
-      fid: "willowcricket"
-    },
-    {
-      id: 2,
-      title: "Star Sports 1",
-      icon: "https://profamouslife.com/icons/STAR Sports 1.png", 
-      streamUrl: "https://streamcrichd.com/update/starsports1.php",
-      hasStream: true,
-      type: "generated",
-      category: "India",
-      quality: "HD",
-      source: "pattern",
-      status: "success",
-      fid: "starsports1"
-    },
-    {
-      id: 3,
-      title: "Sky Sports",
-      icon: "https://profamouslife.com/icons/sky-sports.png",
-      streamUrl: "https://streamcrichd.com/update/skysports.php",
-      hasStream: true,
-      type: "generated",
-      category: "UK", 
-      quality: "HD",
-      source: "pattern",
-      status: "success",
-      fid: "skysports"
-    },
-    {
-      id: 4,
-      title: "PTV Sports",
-      icon: "https://profamouslife.com/icons/pvt-sports.png",
-      streamUrl: "https://streamcrichd.com/update/ptvsports.php",
-      hasStream: true,
-      type: "generated",
-      category: "Pakistan",
-      quality: "HD",
-      source: "pattern",
-      status: "success",
-      fid: "ptvsports"
-    },
-    {
-      id: 5,
-      title: "T Sports",
-      icon: "https://profamouslife.com/icons/tsports.png",
-      streamUrl: "https://streamcrichd.com/update/tsports.php",
-      hasStream: true,
-      type: "generated",
-      category: "Bangladesh",
-      quality: "HD",
-      source: "pattern", 
-      status: "success",
-      fid: "tsports"
-    },
-    {
-      id: 6,
-      title: "Willow Sports",
-      icon: "https://profamouslife.com/icons/willow-sports.png",
-      streamUrl: "https://streamcrichd.com/update/willowsports.php",
-      hasStream: true,
-      type: "generated",
-      category: "USA",
-      quality: "HD",
-      source: "pattern",
-      status: "success",
-      fid: "willowsports"
-    },
-    {
-      id: 7,
-      title: "Star Sports 1 Hindi",
-      icon: "https://profamouslife.com/icons/STAR Sports 1.png",
-      streamUrl: "https://streamcrichd.com/update/starsports1hindi.php",
-      hasStream: true,
-      type: "generated",
-      category: "India",
-      quality: "HD",
-      source: "pattern",
-      status: "success",
-      fid: "starsports1hindi"
-    },
-    {
-      id: 8,
-      title: "Fox Sports",
-      icon: "https://profamouslife.com/icons/fox-cricket.png",
-      streamUrl: "https://streamcrichd.com/update/foxsports.php",
-      hasStream: true,
-      type: "generated",
-      category: "Australia",
-      quality: "HD",
-      source: "pattern",
-      status: "success",
-      fid: "foxsports"
-    }
-  ];
+  if (lowerTitle.includes('willow')) return 'USA';
+  if (lowerTitle.includes('star')) return 'India';
+  if (lowerTitle.includes('t sports')) return 'Bangladesh';
+  if (lowerTitle.includes('ptv')) return 'Pakistan';
+  if (lowerTitle.includes('sky')) return 'UK';
+  if (lowerTitle.includes('fox')) return 'Australia';
+  if (lowerTitle.includes('super')) return 'South Africa';
+  if (lowerTitle.includes('ten')) return 'Pakistan';
+  if (lowerTitle.includes('gtv')) return 'Bangladesh';
+  if (lowerTitle.includes('astra')) return 'Middle East';
+  
+  return 'International';
 }
