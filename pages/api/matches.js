@@ -15,8 +15,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🕸️ Scraping channel directory...');
-    const channels = await scrapeAllChannels();
+    console.log('🕸️ Fetching channel directory...');
+    const channels = await getChannelsWithStreams();
     
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate');
     res.status(200).json({
@@ -28,82 +28,51 @@ export default async function handler(req, res) {
     });
     
   } catch (error) {
-    console.error('❌ Scraping error:', error.message);
+    console.error('❌ Error:', error.message);
     
-    // Fallback sample data based on the HTML structure
-    const sampleChannels = [
-      {
-        id: 1,
-        title: "T Sports",
-        icon: "./icons/tsports.png",
-        channelUrl: "./channel/t-sports.html",
-        streamUrl: null,
-        type: "sports",
-        category: "Bangladesh"
-      },
-      {
-        id: 2,
-        title: "Willow Sports", 
-        icon: "./icons/willow-sports.png",
-        channelUrl: "./channel/willow-sports.html",
-        streamUrl: null,
-        type: "sports", 
-        category: "USA"
-      },
-      {
-        id: 3,
-        title: "Star Sports 1",
-        icon: "./icons/STAR Sports 1.png",
-        channelUrl: "./channel/star-sports-1.html", 
-        streamUrl: null,
-        type: "sports",
-        category: "India"
-      }
-    ];
+    // Fallback with direct stream URLs based on the pattern you found
+    const fallbackChannels = getFallbackChannels();
     
     res.status(200).json({
       success: true,
-      data: sampleChannels,
-      total: sampleChannels.length,
+      data: fallbackChannels,
+      total: fallbackChannels.length,
       lastUpdated: new Date().toISOString(),
-      message: "Using sample channel data",
+      message: "Using direct stream URLs",
       error: error.message
     });
   }
 }
 
-async function scrapeAllChannels() {
-  const baseUrl = 'https://profamouslife.com'; // The site you found
+async function getChannelsWithStreams() {
+  const baseUrl = 'https://profamouslife.com';
   
   const axiosConfig = {
-    timeout: 15000,
+    timeout: 10000,
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': 'https://www.google.com/'
     }
   };
 
   try {
-    console.log('📡 Fetching main page...');
-    const mainResponse = await axios.get(baseUrl, axiosConfig);
-    const $main = cheerio.load(mainResponse.data);
+    // Get the main directory
+    const response = await axios.get(baseUrl, axiosConfig);
+    const $ = cheerio.load(response.data);
     
     const channels = [];
     let channelId = 1;
 
-    // Extract all channels from the main page
-    $main('.channel-list .channel a').each((index, element) => {
+    // Extract channels from directory
+    $('.channel-list .channel a').each((index, element) => {
       const $link = $(element);
       const href = $link.attr('href');
       const title = $link.find('.ch-name').text().trim();
       const icon = $link.find('img.icon').attr('src');
       
       if (href && title) {
-        const fullChannelUrl = href.startsWith('./') ? `${baseUrl}${href.substring(1)}` : 
-                              href.startsWith('/') ? `${baseUrl}${href}` : 
-                              href.startsWith('http') ? href : `${baseUrl}/${href}`;
+        const channelName = extractChannelNameFromUrl(href);
+        const streamUrl = `https://streamcrichd.com/update/${channelName}.php`;
         
         const fullIconUrl = icon.startsWith('./') ? `${baseUrl}${icon.substring(1)}` : 
                            icon.startsWith('/') ? `${baseUrl}${icon}` : 
@@ -113,136 +82,150 @@ async function scrapeAllChannels() {
           id: channelId++,
           title: title,
           icon: fullIconUrl,
-          channelUrl: fullChannelUrl,
-          streamUrl: null, // Will be populated later
-          type: "sports",
+          channelName: channelName,
+          streamUrl: streamUrl,
+          embedUrl: streamUrl, // Direct embed URL
+          type: "iframe",
           category: getCategoryFromTitle(title),
-          source: baseUrl
+          quality: "HD",
+          source: "streamcrichd.com",
+          isLive: true
         });
         
-        console.log(`📺 Found channel: ${title} - ${fullChannelUrl}`);
+        console.log(`📺 Channel: ${title} -> ${streamUrl}`);
       }
     });
 
-    console.log(`🔍 Found ${channels.length} channels, now extracting streams...`);
-
-    // Now extract stream URLs from each channel page
-    const channelsWithStreams = await Promise.all(
-      channels.slice(0, 12).map(async (channel) => {
-        try {
-          console.log(`🎯 Extracting stream from: ${channel.title}`);
-          const streamData = await extractStreamFromChannel(channel.channelUrl, axiosConfig);
-          
-          return {
-            ...channel,
-            ...streamData,
-            hasStream: !!streamData.streamUrl
-          };
-        } catch (error) {
-          console.log(`❌ Failed to extract stream from ${channel.title}: ${error.message}`);
-          return {
-            ...channel,
-            streamUrl: null,
-            iframeUrl: null,
-            hasStream: false,
-            error: error.message
-          };
-        }
-      })
-    );
-
-    console.log(`✅ Successfully processed ${channelsWithStreams.filter(c => c.hasStream).length} streams`);
-    return channelsWithStreams;
+    return channels;
     
   } catch (error) {
-    console.error('❌ Main scraping error:', error.message);
-    throw error;
+    console.error('Scraping failed, using fallback:', error.message);
+    return getFallbackChannels();
   }
 }
 
-async function extractStreamFromChannel(channelUrl, axiosConfig) {
-  try {
-    console.log(`🔍 Scanning channel: ${channelUrl}`);
-    const response = await axios.get(channelUrl, axiosConfig);
-    const $ = cheerio.load(response.data);
-    
-    let streamUrl = null;
-    let iframeUrl = null;
-    let iframeSrc = null;
-
-    // Look for iframe first (most common)
-    $('iframe').each((index, element) => {
-      const src = $(element).attr('src');
-      if (src && (src.includes('stream') || src.includes('crichd') || src.includes('player'))) {
-        iframeSrc = src;
-        iframeUrl = src.startsWith('//') ? `https:${src}` : src;
-        console.log(`🎯 Found iframe: ${iframeUrl}`);
-        return false; // Break loop
-      }
-    });
-
-    // If iframe found, that's our stream
-    if (iframeUrl) {
-      streamUrl = iframeUrl;
-    } else {
-      // Look for video elements
-      $('video').each((index, element) => {
-        const src = $(element).attr('src');
-        if (src && (src.includes('.m3u8') || src.includes('.mp4'))) {
-          streamUrl = src;
-          console.log(`🎯 Found video source: ${src}`);
-          return false;
-        }
-      });
-    }
-
-    // Look for script variables containing stream URLs
-    if (!streamUrl) {
-      $('script').each((index, element) => {
-        const scriptContent = $(element).html();
-        if (scriptContent) {
-          const streamMatches = scriptContent.match(/(https?:\/\/[^\s"']*\.m3u8[^\s"']*)/g) ||
-                               scriptContent.match(/(https?:\/\/[^\s"']*stream[^\s"']*)/g);
-          
-          if (streamMatches && streamMatches.length > 0) {
-            streamUrl = streamMatches[0];
-            console.log(`🎯 Found stream in script: ${streamUrl}`);
-            return false;
-          }
-        }
-      });
-    }
-
-    return {
-      streamUrl: streamUrl,
-      iframeUrl: iframeUrl,
-      iframeSrc: iframeSrc
-    };
-    
-  } catch (error) {
-    console.error(`❌ Error extracting from ${channelUrl}:`, error.message);
-    return {
-      streamUrl: null,
-      iframeUrl: null,
-      iframeSrc: null
-    };
+function extractChannelNameFromUrl(url) {
+  // Extract channel name from URL like "./channel/willow-sports.html"
+  const match = url.match(/\/([a-z-]+)\.html$/);
+  if (match) {
+    return match[1].replace('-', '');
   }
+  return url.split('/').pop().replace('.html', '').replace('-', '');
 }
 
 function getCategoryFromTitle(title) {
-  if (title.includes('Willow')) return 'USA';
-  if (title.includes('Star')) return 'India';
-  if (title.includes('T Sports')) return 'Bangladesh';
-  if (title.includes('PTV')) return 'Pakistan';
-  if (title.includes('Sky')) return 'UK';
-  if (title.includes('Fox')) return 'Australia';
-  if (title.includes('Super')) return 'South Africa';
-  if (title.includes('Ten')) return 'Pakistan';
-  if (title.includes('GTV')) return 'Bangladesh';
-  if (title.includes('Astra')) return 'Middle East';
+  const categories = {
+    'Willow': 'USA',
+    'Star Sports': 'India', 
+    'T Sports': 'Bangladesh',
+    'PTV': 'Pakistan',
+    'Sky Sports': 'UK',
+    'Fox': 'Australia',
+    'Super Sports': 'South Africa',
+    'Ten Sports': 'Pakistan',
+    'GTV': 'Bangladesh',
+    'Astra': 'Middle East'
+  };
+  
+  for (const [key, value] of Object.entries(categories)) {
+    if (title.includes(key)) return value;
+  }
   return 'International';
 }
 
-function $(element) {
-  return cheerio.load(element);
+function getFallbackChannels() {
+  // Direct stream URLs based on the pattern you discovered
+  return [
+    {
+      id: 1,
+      title: "Willow Cricket",
+      icon: "https://profamouslife.com/icons/willow-sports.png",
+      channelName: "willowcricket",
+      streamUrl: "https://streamcrichd.com/update/willowcricket.php",
+      embedUrl: "https://streamcrichd.com/update/willowcricket.php",
+      type: "iframe",
+      category: "USA",
+      quality: "HD",
+      source: "streamcrichd.com",
+      isLive: true
+    },
+    {
+      id: 2,
+      title: "Willow Sports",
+      icon: "https://profamouslife.com/icons/willow-sports.png", 
+      channelName: "willowsports",
+      streamUrl: "https://streamcrichd.com/update/willowsports.php",
+      embedUrl: "https://streamcrichd.com/update/willowsports.php",
+      type: "iframe",
+      category: "USA",
+      quality: "HD",
+      source: "streamcrichd.com",
+      isLive: true
+    },
+    {
+      id: 3,
+      title: "Star Sports 1",
+      icon: "https://profamouslife.com/icons/STAR Sports 1.png",
+      channelName: "starsports1",
+      streamUrl: "https://streamcrichd.com/update/starsports1.php",
+      embedUrl: "https://streamcrichd.com/update/starsports1.php",
+      type: "iframe",
+      category: "India",
+      quality: "HD", 
+      source: "streamcrichd.com",
+      isLive: true
+    },
+    {
+      id: 4,
+      title: "Star Sports 1 Hindi",
+      icon: "https://profamouslife.com/icons/STAR Sports 1.png",
+      channelName: "starsports1hindi",
+      streamUrl: "https://streamcrichd.com/update/starsports1hindi.php",
+      embedUrl: "https://streamcrichd.com/update/starsports1hindi.php",
+      type: "iframe",
+      category: "India",
+      quality: "HD",
+      source: "streamcrichd.com", 
+      isLive: true
+    },
+    {
+      id: 5,
+      title: "Sky Sports",
+      icon: "https://profamouslife.com/icons/sky-sports.png",
+      channelName: "skysports",
+      streamUrl: "https://streamcrichd.com/update/skysports.php",
+      embedUrl: "https://streamcrichd.com/update/skysports.php",
+      type: "iframe",
+      category: "UK",
+      quality: "HD",
+      source: "streamcrichd.com",
+      isLive: true
+    },
+    {
+      id: 6,
+      title: "PTV Sports",
+      icon: "https://profamouslife.com/icons/pvt-sports.png",
+      channelName: "ptvsports",
+      streamUrl: "https://streamcrichd.com/update/ptvsports.php",
+      embedUrl: "https://streamcrichd.com/update/ptvsports.php",
+      type: "iframe",
+      category: "Pakistan",
+      quality: "HD",
+      source: "streamcrichd.com",
+      isLive: true
+    },
+    {
+      id: 7,
+      title: "T Sports",
+      icon: "https://profamouslife.com/icons/tsports.png",
+      channelName: "tsports",
+      streamUrl: "https://streamcrichd.com/update/tsports.php",
+      embedUrl: "https://streamcrichd.com/update/tsports.php",
+      type: "iframe",
+      category: "Bangladesh",
+      quality: "HD",
+      source: "streamcrichd.com",
+      isLive: true
+    }
+  ];
 }
