@@ -1,17 +1,36 @@
 {
   "name": "crichd-tracker",
-  "version": "1.0.0", 
+  "version": "1.0.0",
+  "description": "Cricket streaming M3U8 player with auto-extraction",
   "scripts": {
     "dev": "next dev",
-    "build": "next build", 
-    "start": "next start"
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "next": "^13.0.0",
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "axios": "^1.5.0",
+    "next": "^13.5.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "axios": "^1.5.1",
     "cheerio": "^1.0.0-rc.12"
-  }
+  },
+  "devDependencies": {
+    "eslint": "^8.51.0",
+    "eslint-config-next": "^13.5.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "cricket",
+    "streaming",
+    "m3u8",
+    "video-player",
+    "nextjs"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }
+
 
