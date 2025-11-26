@@ -1,23 +1,22 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function Home() {
-  const [streams, setStreams] = useState([]);
+  const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [selectedStream, setSelectedStream] = useState(null);
+  const [selectedChannel, setSelectedChannel] = useState(null);
   const [playerError, setPlayerError] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const videoRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const fetchStreams = async () => {
+  const fetchChannels = async () => {
     setLoading(true);
     try {
-      console.log('🔄 Fetching streams...');
+      console.log('🔄 Fetching channels...');
       const response = await fetch('/api/matches');
       const data = await response.json();
-      console.log('📊 Streams response:', data);
+      console.log('📊 Channels found:', data);
       
       if (data.success) {
-        setStreams(data.data);
+        setChannels(data.data);
       }
     } catch (error) {
       console.error('❌ Fetch error:', error);
@@ -26,134 +25,210 @@ export default function Home() {
     }
   };
 
-  const playStream = (stream) => {
-    console.log('🎯 Playing stream:', stream);
-    setSelectedStream(stream);
+  const playChannel = (channel) => {
+    setSelectedChannel(channel);
     setPlayerError(false);
-    setIsPlaying(false);
   };
 
   const closePlayer = () => {
-    setSelectedStream(null);
+    setSelectedChannel(null);
     setPlayerError(false);
-    setIsPlaying(false);
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.src = '';
-    }
+    setIsFullscreen(false);
   };
 
-  const handleVideoLoad = () => {
-    console.log('✅ Video loaded successfully');
-    setIsPlaying(true);
-    setPlayerError(false);
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
   };
 
-  const handleVideoError = (e) => {
-    console.error('❌ Video error:', e);
-    console.error('Video error details:', videoRef.current?.error);
+  const handleIframeError = () => {
+    console.error('❌ Iframe load error');
     setPlayerError(true);
-    setIsPlaying(false);
   };
 
-  const handleVideoPlay = () => {
-    console.log('▶️ Video started playing');
-    setIsPlaying(true);
-    setPlayerError(false);
+  const getStreamUrl = (channel) => {
+    if (channel.iframeUrl) {
+      return channel.iframeUrl.startsWith('//') ? `https:${channel.iframeUrl}` : channel.iframeUrl;
+    }
+    return channel.streamUrl;
   };
 
-  // Use HLS.js for better M3U8 support
-  const loadHLSPlayer = async (streamUrl) => {
-    if (typeof window !== 'undefined' && window.Hls) {
-      const video = videoRef.current;
-      if (video) {
-        const hls = new window.Hls();
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
-        hls.on(window.Hls.Events.MANIFEST_PARSED, function() {
-          video.play().catch(e => {
-            console.error('Auto-play failed:', e);
-          });
-        });
-        hls.on(window.Hls.Events.ERROR, function(event, data) {
-          console.error('HLS error:', data);
-          setPlayerError(true);
-        });
-      }
+  const openOriginalPage = () => {
+    if (selectedChannel?.channelUrl) {
+      window.open(selectedChannel.channelUrl, '_blank');
     }
   };
+
+  // Group channels by category
+  const groupedChannels = channels.reduce((groups, channel) => {
+    const category = channel.category || 'Other';
+    if (!groups[category]) {
+      groups[category] = [];
+    }
+    groups[category].push(channel);
+    return groups;
+  }, {});
 
   useEffect(() => {
-    fetchStreams();
+    fetchChannels();
   }, []);
 
   return (
-    <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: 1200, margin: '0 auto' }}>
-      <h1 style={{ color: '#2563eb', textAlign: 'center' }}>🏏 Cricket Stream Player</h1>
-      <p style={{ textAlign: 'center', color: '#6b7280' }}>Live M3U8 Stream Playback</p>
-      <p style={{ textAlign: 'center', fontSize: '14px', color: '#ef4444', background: '#fef2f2', padding: 10, borderRadius: 5 }}>
-        <strong>⚠️ Educational Purpose Only - Test Streams</strong>
-      </p>
-      
-      {/* VIDEO PLAYER OVERLAY */}
-      {selectedStream && (
+    <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: 1400, margin: '0 auto', minHeight: '100vh', background: '#f8fafc' }}>
+      {/* HEADER */}
+      <div style={{ textAlign: 'center', marginBottom: 30 }}>
+        <h1 style={{ color: '#2563eb', margin: '0 0 10px 0', fontSize: '2.5em' }}>🏏 Hasib IP TV</h1>
+        <p style={{ color: '#6b7280', fontSize: '1.2em', margin: '0 0 20px 0' }}>Live Sports Channels</p>
+        <div style={{ 
+          background: '#fef2f2', 
+          padding: '12px 20px', 
+          borderRadius: 10,
+          display: 'inline-block',
+          border: '2px solid #fecaca'
+        }}>
+          <p style={{ color: '#dc2626', margin: 0, fontSize: '14px', fontWeight: 'bold' }}>
+            ⚠️ Educational Purpose Only - Live Stream Testing
+          </p>
+        </div>
+      </div>
+
+      {/* REFRESH BUTTON */}
+      <div style={{ textAlign: 'center', margin: '30px 0' }}>
+        <button 
+          onClick={fetchChannels} 
+          disabled={loading}
+          style={{
+            padding: '15px 30px',
+            background: '#2563eb',
+            color: 'white',
+            border: 'none',
+            borderRadius: 10,
+            cursor: 'pointer',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+            transition: 'all 0.3s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.transform = 'translateY(-2px)';
+            e.target.style.boxShadow = '0 6px 20px rgba(37, 99, 235, 0.4)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.transform = 'translateY(0)';
+            e.target.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.3)';
+          }}
+        >
+          {loading ? '🔄 Scanning Channels...' : '🔄 Refresh Channels'}
+        </button>
+      </div>
+
+      {/* CHANNEL PLAYER */}
+      {selectedChannel && (
         <div style={{
-          position: 'fixed',
+          position: isFullscreen ? 'fixed' : 'relative',
           top: 0,
           left: 0,
           right: 0,
-          bottom: 0,
-          background: 'rgba(0,0,0,0.95)',
+          bottom: isFullscreen ? 0 : 'auto',
+          background: isFullscreen ? 'black' : 'white',
           zIndex: 1000,
-          padding: 20,
-          display: 'flex',
-          flexDirection: 'column'
+          padding: isFullscreen ? 0 : 20,
+          marginBottom: isFullscreen ? 0 : 30,
+          border: isFullscreen ? 'none' : '2px solid #e5e7eb',
+          borderRadius: isFullscreen ? 0 : 15,
+          boxShadow: isFullscreen ? 'none' : '0 10px 40px rgba(0,0,0,0.1)'
         }}>
           <div style={{
-            background: '#1f2937',
-            borderRadius: 12,
-            padding: 20,
-            flex: 1,
+            background: isFullscreen ? 'black' : 'white',
+            borderRadius: isFullscreen ? 0 : 15,
+            padding: isFullscreen ? 0 : 20,
             display: 'flex',
             flexDirection: 'column',
-            maxWidth: 1200,
-            margin: '0 auto',
-            width: '100%'
+            height: isFullscreen ? '100vh' : '600px',
+            position: 'relative'
           }}>
             {/* Player Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
-              <div>
-                <h2 style={{ color: 'white', margin: 0, fontSize: '1.5em' }}>
-                  📺 {selectedStream.title}
-                </h2>
-                <p style={{ color: '#9ca3af', margin: 0, fontSize: '14px' }}>
-                  🎯 M3U8 Stream • {selectedStream.quality}
-                </p>
+            {!isFullscreen && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
+                  <img 
+                    src={selectedChannel.icon} 
+                    alt={selectedChannel.title}
+                    style={{ 
+                      width: 50, 
+                      height: 50, 
+                      borderRadius: 10,
+                      objectFit: 'cover',
+                      border: '2px solid #e5e7eb'
+                    }}
+                    onError={(e) => {
+                      e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIHZpZXdCb3g9IjAgMCA1MCA1MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjUwIiBoZWlnaHQ9IjUwIiByeD0iMTAiIGZpbGw9IiMyNTYzZWIiLz4KPHN2ZyB4PSIxMiIgeT0iMTIiIHdpZHRoPSIyNiIgaGVpZ2h0PSIyNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPgo8cGF0aCBkPSJNMiA5YTMgMyAwIDAgMSAzLTNoMTRhMyAzIDAgMCAxIDMgM3Y2YTMgMyAwIDAgMS0zIDNINWEzIDMgMCAwIDEtMy0zVjlaIi8+CjxwYXRoIGQ9Im0xNSAxMy0zLTMtMyAzIi8+Cjwvc3ZnPgo8L3N2Zz4K';
+                    }}
+                  />
+                  <div>
+                    <h2 style={{ color: '#1f2937', margin: '0 0 5px 0', fontSize: '1.5em' }}>
+                      {selectedChannel.title}
+                    </h2>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <span style={{ 
+                        background: '#10b981', 
+                        color: 'white', 
+                        padding: '4px 8px', 
+                        borderRadius: 20,
+                        fontSize: '12px',
+                        fontWeight: 'bold'
+                      }}>
+                        {selectedChannel.category}
+                      </span>
+                      <span style={{ color: '#6b7280', fontSize: '14px' }}>
+                        {selectedChannel.hasStream ? '🎯 Live Stream' : '🌐 Web Page'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button 
+                    onClick={toggleFullscreen}
+                    style={{
+                      padding: '10px 20px',
+                      background: '#2563eb',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {isFullscreen ? '📱 Exit Fullscreen' : '📺 Fullscreen'}
+                  </button>
+                  <button 
+                    onClick={closePlayer}
+                    style={{
+                      padding: '10px 20px',
+                      background: '#ef4444',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    ✕ Close
+                  </button>
+                </div>
               </div>
-              <button 
-                onClick={closePlayer}
-                style={{
-                  background: '#ef4444',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: 40,
-                  height: 40,
-                  cursor: 'pointer',
-                  fontSize: '18px'
-                }}
-              >
-                ✕
-              </button>
-            </div>
+            )}
             
-            {/* Video Player */}
+            {/* Stream Player */}
             <div style={{ 
               flex: 1, 
               background: '#000', 
-              borderRadius: 8,
+              borderRadius: isFullscreen ? 0 : 10,
               position: 'relative',
-              minHeight: 400
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}>
               {playerError ? (
                 <div style={{ 
@@ -161,216 +236,367 @@ export default function Home() {
                   flexDirection: 'column',
                   alignItems: 'center', 
                   justifyContent: 'center', 
-                  height: '100%',
                   color: 'white',
                   textAlign: 'center',
                   padding: 20
                 }}>
-                  <div style={{ fontSize: '48px', marginBottom: 20 }}>❌</div>
-                  <h3 style={{ color: '#ef4444', marginBottom: 10 }}>Stream Unavailable</h3>
-                  <p>This test stream might be offline or not accessible.</p>
-                  <p style={{ marginBottom: 20, fontSize: '14px', color: '#d1d5db' }}>
-                    Try a different stream or check your internet connection.
+                  <div style={{ fontSize: '64px', marginBottom: 20 }}>❌</div>
+                  <h3 style={{ color: '#ef4444', marginBottom: 10, fontSize: '1.5em' }}>Stream Unavailable</h3>
+                  <p style={{ marginBottom: 20, fontSize: '16px', color: '#d1d5db' }}>
+                    Could not load the stream. This might be due to:
                   </p>
+                  <ul style={{ textAlign: 'left', marginBottom: 30, color: '#9ca3af', fontSize: '14px' }}>
+                    <li>• Ad-blockers blocking the content</li>
+                    <li>• Geographic restrictions</li>
+                    <li>• Stream being temporarily offline</li>
+                    <li>• Network connectivity issues</li>
+                  </ul>
                   
-                  <button 
-                    onClick={closePlayer}
-                    style={{
-                      padding: '10px 20px',
-                      background: '#6b7280',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: 8,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    ← Back to Stream List
-                  </button>
+                  <div style={{ display: 'flex', gap: 15 }}>
+                    <button 
+                      onClick={openOriginalPage}
+                      style={{
+                        padding: '12px 24px',
+                        background: '#2563eb',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      🌐 Open Original Page
+                    </button>
+                    <button 
+                      onClick={closePlayer}
+                      style={{
+                        padding: '12px 24px',
+                        background: '#6b7280',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      ← Back to Channels
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <video
-                  ref={videoRef}
-                  key={selectedStream.m3u8Url}
-                  controls
-                  autoPlay
-                  playsInline
+              ) : selectedChannel.streamUrl || selectedChannel.iframeUrl ? (
+                <iframe
+                  src={getStreamUrl(selectedChannel)}
                   style={{
                     width: '100%',
                     height: '100%',
-                    borderRadius: 8
+                    border: 'none',
+                    borderRadius: isFullscreen ? 0 : 10
                   }}
-                  onLoadedData={handleVideoLoad}
-                  onError={handleVideoError}
-                  onPlay={handleVideoPlay}
-                  onPlaying={handleVideoPlay}
-                >
-                  <source src={selectedStream.m3u8Url} type="application/x-mpegURL" />
-                  <source src={selectedStream.m3u8Url} type="video/mp4" />
-                  Your browser does not support the video tag.
-                </video>
+                  allowFullScreen
+                  allow="encrypted-media; autoplay; fullscreen"
+                  onError={handleIframeError}
+                  title={`Live Stream: ${selectedChannel.title}`}
+                />
+              ) : (
+                <div style={{ color: 'white', textAlign: 'center', padding: 40 }}>
+                  <div style={{ fontSize: '64px', marginBottom: 20 }}>🌐</div>
+                  <h3>Channel Page</h3>
+                  <p style={{ marginBottom: 20, color: '#9ca3af' }}>
+                    No direct stream URL found for this channel.
+                  </p>
+                  <button 
+                    onClick={openOriginalPage}
+                    style={{
+                      padding: '12px 24px',
+                      background: '#2563eb',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    🌐 Open Channel Page
+                  </button>
+                </div>
               )}
             </div>
-            
-            {/* Stream Info */}
-            <div style={{ marginTop: 15, color: '#9ca3af', fontSize: '14px' }}>
-              <div style={{ 
-                background: '#374151', 
-                padding: 10, 
-                borderRadius: 6,
-                fontSize: '12px',
-                wordBreak: 'break-all'
-              }}>
-                <strong>Stream URL:</strong><br />
-                {selectedStream.m3u8Url}
-              </div>
-              
-              <div style={{ display: 'flex', gap: 20, marginTop: 10, alignItems: 'center' }}>
-                <span>Status: 
-                  <strong style={{ 
-                    color: isPlaying ? '#10b981' : playerError ? '#ef4444' : '#f59e0b',
-                    marginLeft: 5
-                  }}>
-                    {isPlaying ? '▶️ Playing' : playerError ? '❌ Error' : '⏳ Loading...'}
-                  </strong>
-                </span>
-                <span>Quality: {selectedStream.quality}</span>
-                {!isPlaying && !playerError && (
-                  <span style={{ color: '#f59e0b' }}>
-                    ⚠️ If stream doesn't play, try a different one
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* STREAMS LIST */}
-      <div style={{ textAlign: 'center', margin: '20px 0' }}>
-        <button 
-          onClick={fetchStreams} 
-          disabled={loading}
-          style={{
-            padding: '10px 20px',
-            background: '#2563eb',
-            color: 'white',
-            border: 'none',
-            borderRadius: 8,
-            cursor: 'pointer',
-            fontSize: '16px'
-          }}
-        >
-          {loading ? '🔄 Loading Streams...' : '🔄 Load Test Streams'}
-        </button>
-        <p style={{ fontSize: '14px', color: '#6b7280', marginTop: 10 }}>
-          Click to load publicly available test streams
-        </p>
-      </div>
-      
-      <h2 style={{ color: '#374151' }}>Available Streams ({streams.length})</h2>
-      
-      {streams.length > 0 ? (
-        <div style={{ display: 'grid', gap: 15 }}>
-          {streams.map((stream) => (
-            <div key={stream.id} style={{ 
-              border: '2px solid #10b981', 
-              padding: 20, 
-              borderRadius: 12,
-              background: '#f0fdf4',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <div style={{ flex: 1 }}>
-                <h3 style={{ color: '#059669', margin: '0 0 8px 0' }}>
-                  {stream.title}
-                  <span style={{ 
-                    background: '#10b981', 
-                    color: 'white', 
-                    fontSize: '12px', 
-                    padding: '2px 8px', 
-                    borderRadius: 10,
-                    marginLeft: 10
-                  }}>
-                    M3U8
-                  </span>
-                </h3>
-                <div style={{ 
-                  background: '#dcfce7', 
-                  padding: 8, 
-                  borderRadius: 6,
-                  fontSize: '12px',
-                  wordBreak: 'break-all',
-                  color: '#065f46',
-                  marginBottom: 8
-                }}>
-                  {stream.m3u8Url}
-                </div>
-                <div style={{ display: 'flex', gap: 15, fontSize: '14px', color: '#059669' }}>
-                  <span>📺 {stream.quality}</span>
-                  <span>🔓 Public Test Stream</span>
-                </div>
-              </div>
-              
+            {/* Fullscreen Close Button */}
+            {isFullscreen && (
               <button 
-                onClick={() => playStream(stream)}
+                onClick={closePlayer}
                 style={{
-                  padding: '10px 20px',
-                  background: '#10b981',
+                  position: 'absolute',
+                  top: 20,
+                  right: 20,
+                  background: 'rgba(239, 68, 68, 0.9)',
                   color: 'white',
                   border: 'none',
-                  borderRadius: 8,
+                  borderRadius: '50%',
+                  width: 50,
+                  height: 50,
                   cursor: 'pointer',
-                  fontWeight: 'bold',
-                  whiteSpace: 'nowrap'
+                  fontSize: '20px',
+                  zIndex: 1001
                 }}
               >
-                ▶️ Play Stream
+                ✕
               </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        !loading && (
-          <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
-            <div style={{ fontSize: '48px', marginBottom: 20 }}>📺</div>
-            <h3>No Streams Loaded</h3>
-            <p>Click "Load Test Streams" to see available streams</p>
+            )}
           </div>
-        )
-      )}
-      
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 40 }}>
-          <div style={{ fontSize: '48px', marginBottom: 20 }}>⏳</div>
-          <h3>Loading Streams</h3>
-          <p>Fetching available test streams...</p>
         </div>
       )}
 
-      {/* Information Section */}
-      <div style={{ 
-        marginTop: 40, 
-        padding: 20, 
-        background: '#f0f9ff', 
-        borderRadius: 12,
-        border: '2px solid #dbeafe'
-      }}>
-        <h3 style={{ color: '#1e40af' }}>ℹ️ How This Works</h3>
-        <p style={{ color: '#374151' }}>
-          This player uses <strong>publicly available test M3U8 streams</strong> to demonstrate 
-          the streaming functionality. These are real M3U8 streams that should work in most browsers.
-        </p>
-        <div style={{ 
-          background: '#dbeafe', 
-          padding: 15, 
-          borderRadius: 8,
-          marginTop: 10
-        }}>
-          <strong>Note:</strong> Some streams may be offline or have limited availability. 
-          If one stream doesn't work, try another one from the list.
+      {/* CHANNELS GALLERY */}
+      {!selectedChannel && (
+        <div>
+          {/* Statistics */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            gap: 20, 
+            marginBottom: 30,
+            flexWrap: 'wrap'
+          }}>
+            <div style={{ 
+              background: 'white', 
+              padding: '15px 25px', 
+              borderRadius: 10,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+              textAlign: 'center',
+              minWidth: 120
+            }}>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#2563eb' }}>
+                {channels.length}
+              </div>
+              <div style={{ fontSize: '14px', color: '#6b7280' }}>Total Channels</div>
+            </div>
+            <div style={{ 
+              background: 'white', 
+              padding: '15px 25px', 
+              borderRadius: 10,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+              textAlign: 'center',
+              minWidth: 120
+            }}>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#10b981' }}>
+                {channels.filter(c => c.hasStream).length}
+              </div>
+              <div style={{ fontSize: '14px', color: '#6b7280' }}>Live Streams</div>
+            </div>
+            <div style={{ 
+              background: 'white', 
+              padding: '15px 25px', 
+              borderRadius: 10,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+              textAlign: 'center',
+              minWidth: 120
+            }}>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#f59e0b' }}>
+                {Object.keys(groupedChannels).length}
+              </div>
+              <div style={{ fontSize: '14px', color: '#6b7280' }}>Countries</div>
+            </div>
+          </div>
+
+          {/* Channels by Category */}
+          {Object.keys(groupedChannels).map(category => (
+            <div key={category} style={{ marginBottom: 40 }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                marginBottom: 20,
+                padding: '15px 20px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: 12,
+                color: 'white'
+              }}>
+                <h2 style={{ margin: 0, fontSize: '1.5em', flex: 1 }}>
+                  🌍 {category} Channels
+                </h2>
+                <span style={{ 
+                  background: 'rgba(255,255,255,0.2)', 
+                  padding: '5px 12px', 
+                  borderRadius: 20,
+                  fontSize: '14px',
+                  fontWeight: 'bold'
+                }}>
+                  {groupedChannels[category].length} channels
+                </span>
+              </div>
+              
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+                gap: 20 
+              }}>
+                {groupedChannels[category].map((channel) => (
+                  <div 
+                    key={channel.id}
+                    style={{ 
+                      background: 'white',
+                      border: channel.hasStream ? '2px solid #10b981' : '2px solid #e5e7eb',
+                      padding: 20, 
+                      borderRadius: 12,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}
+                    onClick={() => playChannel(channel)}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-5px)';
+                      e.currentTarget.style.boxShadow = '0 8px 25px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                    }}
+                  >
+                    {/* Live Badge */}
+                    {channel.hasStream && (
+                      <div style={{
+                        position: 'absolute',
+                        top: 10,
+                        right: 10,
+                        background: '#ef4444',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: 20,
+                        fontSize: '10px',
+                        fontWeight: 'bold',
+                        animation: 'pulse 2s infinite'
+                      }}>
+                        🔴 LIVE
+                      </div>
+                    )}
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 15 }}>
+                      <img 
+                        src={channel.icon} 
+                        alt={channel.title}
+                        style={{ 
+                          width: 50, 
+                          height: 50, 
+                          borderRadius: 10,
+                          objectFit: 'cover',
+                          marginRight: 15,
+                          border: '2px solid #f3f4f6'
+                        }}
+                        onError={(e) => {
+                          e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIHZpZXdCb3g9IjAgMCA1MCA1MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjUwIiBoZWlnaHQ9IjUwIiByeD0iMTAiIGZpbGw9IiMyNTYzZWIiLz4KPHN2ZyB4PSIxMiIgeT0iMTIiIHdpZHRoPSIyNiIgaGVpZ2h0PSIyNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPgo8cGF0aCBkPSJNMiA5YTMgMyAwIDAgMSAzLTNoMTRhMyAzIDAgMCAxIDMgM3Y2YTMgMyAwIDAgMS0zIDNINWEzIDMgMCAwIDEtMy0zVjlaIi8+CjxwYXRoIGQ9Im0xNSAxMy0zLTMtMyAzIi8+Cjwvc3ZnPgo8L3N2Zz4K';
+                        }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <h3 style={{ 
+                          color: '#1f2937', 
+                          margin: '0 0 5px 0', 
+                          fontSize: '1.1em',
+                          fontWeight: 'bold'
+                        }}>
+                          {channel.title}
+                        </h3>
+                        <div style={{ 
+                          background: '#f3f4f6', 
+                          color: '#6b7280', 
+                          padding: '2px 8px', 
+                          borderRadius: 10,
+                          fontSize: '11px',
+                          display: 'inline-block'
+                        }}>
+                          {channel.category}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div style={{ 
+                      background: channel.hasStream ? '#f0fdf4' : '#f8fafc', 
+                      padding: 10, 
+                      borderRadius: 8,
+                      border: `1px solid ${channel.hasStream ? '#dcfce7' : '#e5e7eb'}`,
+                      marginBottom: 10
+                    }}>
+                      <div style={{ 
+                        color: channel.hasStream ? '#059669' : '#6b7280', 
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        textAlign: 'center'
+                      }}>
+                        {channel.hasStream ? '🎯 Direct Stream Available' : '🌐 Web Page Only'}
+                      </div>
+                    </div>
+                    
+                    <div style={{ 
+                      padding: 8, 
+                      background: '#2563eb', 
+                      borderRadius: 8,
+                      textAlign: 'center',
+                      color: 'white',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      ▶️ Click to {channel.hasStream ? 'Watch Live' : 'View Channel'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          
+          {channels.length === 0 && !loading && (
+            <div style={{ textAlign: 'center', padding: 80, color: '#6b7280' }}>
+              <div style={{ fontSize: '80px', marginBottom: 20 }}>📺</div>
+              <h3 style={{ marginBottom: 15 }}>No Channels Found</h3>
+              <p style={{ marginBottom: 10 }}>Click "Refresh Channels" to scan for available sports channels</p>
+              <p style={{ fontSize: '14px', color: '#9ca3af' }}>
+                The system will automatically discover channels from the streaming website
+              </p>
+            </div>
+          )}
+          
+          {loading && (
+            <div style={{ textAlign: 'center', padding: 80 }}>
+              <div style={{ fontSize: '64px', marginBottom: 20 }}>🔍</div>
+              <h3 style={{ marginBottom: 15 }}>Scanning Streaming Website</h3>
+              <p style={{ marginBottom: 20 }}>Discovering channels and extracting streams...</p>
+              <div style={{ 
+                width: '300px', 
+                height: '6px', 
+                background: '#e5e7eb', 
+                borderRadius: '3px',
+                margin: '0 auto 30px auto',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  width: '100%',
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #2563eb, #8b5cf6)',
+                  animation: 'loading 1.5s infinite'
+                }}></div>
+              </div>
+              <p style={{ fontSize: '14px', color: '#6b7280' }}>
+                Scanning: Channel directory, Extracting streams, Loading icons...
+              </p>
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      <style jsx>{`
+        @keyframes loading {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+      `}</style>
     </div>
   );
 }
